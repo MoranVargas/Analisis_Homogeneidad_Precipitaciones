@@ -8,7 +8,8 @@
 # Uso, desde la raíz del repositorio en Git Bash:
 #   Rscript Rscript/Ravanal_Medina.R <Código_BNA>
 #   ej.: Rscript Rscript/Ravanal_Medina.R 9123001
-# En RStudio: escribir el código en `codigo.manual` (sección 1) y usar Source.
+# En Positron o RStudio: abrir la carpeta del repo, fijar `codigo.manual`
+# (sección 1) y usar Source.
 #
 # Marcas de los comentarios:
 #   "2.1)", "2.2)"   -> sub-ítems del paso 2 de la lámina 7 de la Ay04
@@ -36,7 +37,7 @@ library(tseries)    # ADF y KPSS                [Ay03a lám. 21]
 
 
 # 1) Estación asignada (Código BNA, el mismo nombre de la rama) ---------------
-codigo.manual <- ""   # para RStudio: p. ej. "9123001"
+codigo.manual <- "8317001"   # mi estación; en Git Bash se puede pasar otra como argumento
 
 args <- commandArgs(trailingOnly = TRUE)
 codigo <- if (length(args) >= 1) args[1] else codigo.manual
@@ -99,14 +100,33 @@ mensual$anom <- mensual$pp - clima.mes[as.character(mensual$month)]
 dia.max  <- data.pp[which.max(data.pp$pp), ]
 anio.max <- anual[which.max(anual$pp), ]
 anio.min <- anual[which.min(anual$pp), ]
+mes.max  <- mensual[which.max(mensual$pp), ]
+mes.min  <- mensual[which.min(mensual$pp), ]
 meses <- c("ene", "feb", "mar", "abr", "may", "jun",
            "jul", "ago", "sep", "oct", "nov", "dic")
+
+# +) Datos faltantes por año: si hubiera NA, aquí se ve dónde se concentran.
+na.anio <- data.frame(year = as.integer(names(dias.anio)),
+                      dias = as.integer(table(data.pp$year)),
+                      na   = as.integer(tapply(is.na(data.pp$pp), data.pp$year, sum)))
+write.csv(na.anio, salida("na_por_anio.csv"), row.names = FALSE)
+
+# +) Media diaria en los años hidrológicos 1990-2009 (1-abr-1990 a 31-mar-2010),
+#    el mismo período con que CAMELS-CL calcula su atributo p_mean_cr2met.
+#    Sirve para contrastar la serie contra un valor publicado.
+periodo.camels <- data.pp$date >= as.Date("1990-04-01") &
+                  data.pp$date <= as.Date("2010-03-31")
+media.camels <- mean(data.pp$pp[periodo.camels], na.rm = TRUE)
 
 exploratorio <- data.frame(
   variable = c("Código BNA", "Fecha inicial", "Fecha final", "Días de registro",
                "Días sin dato", "Días con pp >= 1 mm (%)",
-               "Precipitación diaria media (mm)",
+               "Días con pp = 0 (%)", "Precipitación diaria media (mm)",
+               "Mínimo diario (mm)",
                "Máximo diario (mm)", "Fecha del máximo diario",
+               "Mínimo mensual (mm)", "Mes del mínimo mensual",
+               "Máximo mensual (mm)", "Mes del máximo mensual",
+               "Media diaria abr-1990 a mar-2010 (mm)",
                "Años completos", "Precipitación anual media (mm)",
                "Desviación estándar anual (mm)", "Coeficiente de variación anual (-)",
                "Año más lluvioso", "Total del año más lluvioso (mm)",
@@ -116,8 +136,13 @@ exploratorio <- data.frame(
             format(min(data.pp$date)), format(max(data.pp$date)),
             nrow(data.pp), n.na,
             round(100 * mean(data.pp$pp >= umbral.lluvia, na.rm = TRUE), 1),
+            round(100 * mean(data.pp$pp == 0, na.rm = TRUE), 1),
             round(mean(data.pp$pp, na.rm = TRUE), 2),
+            round(min(data.pp$pp, na.rm = TRUE), 2),
             round(dia.max$pp, 1), format(dia.max$date),
+            round(mes.min$pp, 1), sprintf("%d-%02d", mes.min$year, mes.min$month),
+            round(mes.max$pp, 1), sprintf("%d-%02d", mes.max$year, mes.max$month),
+            round(media.camels, 4),
             paste0(nrow(anual), " (", min(anual$year), "-", max(anual$year), ")"),
             round(mean(anual$pp), 1), round(sd(anual$pp), 1),
             round(sd(anual$pp) / mean(anual$pp), 3),
@@ -151,6 +176,32 @@ png(salida("fig3_ciclo_mensual.png"), width = 1600, height = 900, res = 200)
 boxplot(pp ~ month, data = mensual, names = meses, col = "lightsteelblue",
         xlab = "Mes", ylab = "Precipitación mensual (mm)",
         main = paste("Estación", codigo, "- distribución de totales mensuales"))
+invisible(dev.off())
+
+# +) Serie mensual: totales de cada mes en el tiempo, con la media móvil de
+#    12 meses para ver si el nivel cambia.
+fecha.mes <- as.Date(sprintf("%d-%02d-15", mensual$year, mensual$month))
+movil12   <- stats::filter(mensual$pp, rep(1 / 12, 12), sides = 2)
+png(salida("fig5_serie_mensual.png"), width = 1800, height = 800, res = 200)
+plot(fecha.mes, mensual$pp, type = "l", col = "steelblue",
+     xlab = "Fecha", ylab = "Precipitación mensual (mm)",
+     main = paste("Estación", codigo, "- serie de totales mensuales"))
+lines(fecha.mes, movil12, col = "firebrick", lwd = 2)
+legend("topright", legend = c("Total mensual", "Media móvil 12 meses"),
+       col = c("steelblue", "firebrick"), lwd = c(1, 2), bty = "n")
+invisible(dev.off())
+
+# +) Histogramas. El diario usa solo días con lluvia (pp > 0): con todos los
+#    días, la barra del cero tapa el resto de la distribución.
+png(salida("fig6_histogramas.png"), width = 1800, height = 800, res = 200)
+old.par <- par(mfrow = c(1, 2))
+hist(data.pp$pp[data.pp$pp > 0], breaks = 50, col = "lightsteelblue",
+     border = "white", xlab = "Precipitación diaria (mm)", ylab = "Frecuencia",
+     main = "Días con pp > 0")
+hist(mensual$pp, breaks = 30, col = "lightsteelblue", border = "white",
+     xlab = "Precipitación mensual (mm)", ylab = "Frecuencia",
+     main = "Totales mensuales")
+par(old.par)
 invisible(dev.off())
 
 
@@ -230,7 +281,7 @@ write.csv(tests, salida("tests.csv"), row.names = FALSE)
 K <- as.integer(pettitt.test(anual$pp)$estimate)
 antes   <- anual$pp[seq_len(K)]
 despues <- anual$pp[(K + 1):nrow(anual)]
-png(salida("fig4_quiebre_pettitt.png"), width = 1800, height = 800, res = 200)
+png(salida("fig7_quiebre_pettitt.png"), width = 1800, height = 800, res = 200)
 plot(anual$year, anual$pp, type = "b", pch = 16, col = "steelblue",
      xlab = "Año", ylab = "Precipitación anual (mm)",
      main = paste("Estación", codigo, "- quiebre más probable según Pettitt"))

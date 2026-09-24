@@ -1,0 +1,11 @@
+# Fuente: CAMELS-CL (Alvarez-Garreton et al. 2018), archivo 1_CAMELScl_attributes.txt
+# https://store.pangaea.de/Publications/Alvarez-Garreton-etal_2018/1_CAMELScl_attributes.zip
+# p_mean_cr2met: precipitacion media diaria (mm/d), anos hidrologicos 1990-2009 (1-abr-1990 a 31-mar-2010)
+gauge_id,gauge_name,gauge_lat,gauge_lon,area,elev_mean,p_mean_cr2met,high_prec_timing_cr2met
+5707002,Rio Colorado Antes Junta Rio Maipo,-33.5875,-70.3669,1662.79765,3418.7053,1.72149584,jja
+7350001,Rio Longavi En La Quiriquina,-36.2303,-71.4569,668.91773,1401.2204,6.13161366,jja
+8317001,Rio Biobio En Rucalhue,-37.7106,-71.9017,7252.47416,1383.1217,5.51785974,jja
+9123001,Rio Cautin En Rari-Ruca,-38.4303,-72.0106,1305.33726,1124.6327,6.20641970,jja
+9129002,Rio Cautin En Cajon,-38.6867,-72.5028,2755.36630,762.6851,5.37795796,jja
+9412001,Rio Trancura En Curarrehue,-39.3600,-71.5808,356.91764,1195.3111,7.60363579,jja
+9420001,Rio Tolten En Villarica,-39.2667,-72.2333,2931.81068,964.3994,7.10823439,jja

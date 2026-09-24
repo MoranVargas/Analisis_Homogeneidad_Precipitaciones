@@ -42,7 +42,21 @@ expl    <- read.csv(res("exploratorio.csv"), stringsAsFactors = FALSE)
 anual   <- read.csv(res("anual.csv"))
 tests   <- read.csv(res("tests.csv"), stringsAsFactors = FALSE)
 quiebre <- read.csv(res("quiebre_pettitt.csv"))
+na.anio <- read.csv(res("na_por_anio.csv"))
 v <- setNames(expl$valor, expl$variable)
+
+# Atributos publicados por CAMELS-CL para las cuencas del repositorio
+# (ver el encabezado de camels_cl_atributos.csv para la fuente).
+camels <- read.csv("camels_cl_atributos.csv", comment.char = "#",
+                   colClasses = c(gauge_id = "character"))
+cam <- camels[camels$gauge_id == codigo, ]
+hay.camels <- nrow(cam) == 1
+nombre.cuenca <- if (hay.camels) {
+  # Se respeta la grafía de CAMELS-CL; solo se pasan a minúscula las palabras de enlace.
+  n <- sub("^Rio ", "río ", cam$gauge_name)
+  for (w in c("En", "Antes", "Junta")) n <- gsub(paste0(" ", w, " "), paste0(" ", tolower(w), " "), n)
+  n
+} else "[FALTA DATO: nombre de la cuenca]"
 
 f  <- function(x, d = 1) formatC(as.numeric(x), format = "f", digits = d, big.mark = "")
 fp <- function(p, recortado = "no") {
@@ -63,10 +77,15 @@ fila <- function(serie, prueba) tests[tests$serie == serie & tests$prueba == pru
 
 Antes de usar una serie de precipitación en un análisis de frecuencia hay que
 revisar dos supuestos: que todos los datos vengan de la misma fuente y que su
-comportamiento estadístico no cambie en el tiempo. Este informe revisa ambos
-para la serie diaria CR2MET asociada al código BNA **`r codigo`**, entregada en
-el repositorio de la ayudantía, siguiendo las pruebas vistas en la Ayudantía 03a
-[@moran2026].
+comportamiento estadístico no cambie en el tiempo. Antes de eso, hay que
+revisar que la serie esté completa y que sus valores sean físicamente creíbles.
+
+Este informe hace esa revisión para la serie diaria CR2MET del código BNA
+**`r codigo`** (`r nombre.cuenca`), entregada en el repositorio de la
+ayudantía. Responde cuatro preguntas: (1) si hay datos faltantes y por qué;
+(2) si los datos tienen sentido; (3) qué dicen las pruebas de homogeneidad y
+estacionariedad vistas en la Ayudantía 03a [@moran2026]; y (4) cómo se ve la
+serie en los gráficos del análisis exploratorio.
 
 ## Marco teórico
 
@@ -142,7 +161,17 @@ contrastar la conclusión [@moran2026].
 
 El archivo `r paste0("data/precip_cr2met_day_", codigo, ".csv")` trae la precipitación
 diaria desde el `r v[["Fecha inicial"]]` hasta el `r v[["Fecha final"]]`
-(`r v[["Días de registro"]]` días, `r v[["Días sin dato"]]` sin dato).
+(`r v[["Días de registro"]]` días). Su formato (columnas `date`, `year`,
+`month`, `day` y una columna con el código) y su período coinciden con los de
+la serie `precip_cr2met_day.csv` de CAMELS-CL [@alvarez2018]. Por eso se lee
+como la precipitación CR2MET promediada sobre la cuenca que drena a la
+estación fluviométrica `r codigo`, y no como el registro de un pluviómetro
+`r if (hay.camels) paste0("(", f(cam$area, 0), " km², elevación media ", f(cam$elev_mean, 0), " m s. n. m.)") else ""`.
+
+CR2MET es un producto grillado de 0.05° que combina la reducción de escala
+estadística del reanálisis ERA-Interim con registros de pluviómetros
+controlados; CAMELS-CL recorta esos campos diarios con el contorno de cada
+cuenca y los promedia [@alvarez2018].
 
 Las pruebas no se aplican a los datos diarios, porque la mayoría de los días
 son cero y la serie diaria está muy autocorrelacionada. Se aplican a dos series
@@ -166,12 +195,32 @@ cualquiera que clone el repositorio obtiene los mismos valores.
 
 # Resultados
 
-## Análisis exploratorio
+## ¿Hay datos faltantes? ¿Por qué?
+
+```{r}
+#| label: texto-na
+n.na <- as.integer(v[["Días sin dato"]])
+txt.na <- if (n.na == 0) {
+  paste0("No hay datos faltantes. Los ", v[["Días de registro"]], " días traen valor ",
+         "y ninguno de los ", nrow(na.anio), " años de la serie tiene un NA.")
+} else {
+  anios.na <- na.anio$year[na.anio$na > 0]
+  paste0("Hay ", n.na, " días sin dato, repartidos en ", length(anios.na), " años (",
+         paste(anios.na, collapse = ", "), ").")
+}
+```
+
+`r txt.na`
+`r if (n.na == 0) "Es lo esperable para esta serie, por cómo se construye. CR2MET parte del reanálisis ERA-Interim, que entrega un valor para cada celda y cada día, y usa los pluviómetros para corregir esos campos [@alvarez2018]. Si un pluviómetro deja de medir un día, la grilla igual tiene valor. Además, la serie es el promedio de todas las celdas que caen dentro de la cuenca, así que tampoco depende de una celda en particular. Un registro puntual de una estación, en cambio, depende de que el instrumento funcione todos los días." else "[FALTA DATO: explicar el origen de los faltantes]"`
+
+## ¿Tienen sentido los datos? ¿Por qué?
 
 ```{r}
 #| label: tbl-expl
-#| tbl-cap: "Resumen exploratorio de la serie."
-etiq <- c("Días con pp >= 1 mm (%)" = "Días con al menos 1 mm (\\%)")
+#| tbl-cap: "Resumen exploratorio de la serie, con el rango de valores diarios, mensuales y anuales."
+etiq <- c("Días con pp >= 1 mm (%)" = "Días con al menos 1 mm (\\%)",
+          "Días con pp = 0 (%)" = "Días con 0 mm (\\%)",
+          "Media diaria abr-1990 a mar-2010 (mm)" = "Media diaria, abr-1990 a mar-2010 (mm)")
 expl.tab <- expl
 expl.tab$variable <- ifelse(expl.tab$variable %in% names(etiq),
                             etiq[expl.tab$variable], expl.tab$variable)
@@ -179,21 +228,45 @@ names(expl.tab) <- c("Variable", "Valor")
 tabla(expl.tab, c("l", "r"))
 ```
 
-La precipitación anual media es de `r f(v[["Precipitación anual media (mm)"]])` mm,
-con un coeficiente de variación de `r f(v[["Coeficiente de variación anual (-)"]], 3)`
-(@tbl-expl). El año más lluvioso fue `r v[["Año más lluvioso"]]`
-(`r f(v[["Total del año más lluvioso (mm)"]])` mm) y el más seco
-`r v[["Año más seco"]]` (`r f(v[["Total del año más seco (mm)"]])` mm). El
-mes con más lluvia en promedio es `r v[["Mes más lluvioso (media)"]]` y el más
-seco `r v[["Mes más seco (media)"]]` (@fig-mensual).
+```{r}
+#| label: texto-sentido
+p.cero  <- as.numeric(v[["Días con pp = 0 (%)"]])
+p.uno   <- as.numeric(v[["Días con pp >= 1 mm (%)"]])
+p.entre <- 100 - p.cero - p.uno
+media.propia <- as.numeric(v[["Media diaria abr-1990 a mar-2010 (mm)"]])
+dif.camels <- if (hay.camels) 100 * (media.propia - cam$p_mean_cr2met) / cam$p_mean_cr2met else NA
+invierno <- v[["Mes más lluvioso (media)"]] %in% c("may", "jun", "jul", "ago")
+```
 
-![Precipitación diaria de la serie completa.](../results/`r codigo`_fig1_serie_diaria.png){#fig-diaria width=100%}
+Sí tienen sentido, por cuatro razones (@tbl-expl):
 
-![Totales anuales de los años completos; la línea punteada es la media.](../results/`r codigo`_fig2_totales_anuales.png){#fig-anual width=100%}
+1. **Rango físico.** El mínimo diario es `r v[["Mínimo diario (mm)"]]` mm, sin
+   valores negativos, y el máximo es `r f(v[["Máximo diario (mm)"]])` mm, el
+   `r v[["Fecha del máximo diario"]]`. En escala mensual la serie va de
+   `r f(v[["Mínimo mensual (mm)"]])` mm (`r v[["Mes del mínimo mensual"]]`) a
+   `r f(v[["Máximo mensual (mm)"]])` mm (`r v[["Mes del máximo mensual"]]`), y
+   en escala anual de `r f(v[["Total del año más seco (mm)"]])` mm (`r v[["Año más seco"]]`)
+   a `r f(v[["Total del año más lluvioso (mm)"]])` mm (`r v[["Año más lluvioso"]]`). El máximo diario es el valor más alto de toda la
+   serie; si se usara para estudiar crecidas convendría contrastarlo con
+   estaciones de la zona.
+2. **Frecuencia de días secos.** El `r f(p.cero)` % de los días tiene
+   exactamente 0 mm y el `r f(p.uno)` % tiene al menos 1 mm. El
+   `r f(p.entre)` % restante son valores pequeños, entre 0 y 1 mm. Eso calza con
+   un promedio sobre la cuenca: basta que llueva en una parte chica de ella para
+   que el promedio salga distinto de cero, aunque sea bajo.
+3. **Estacionalidad.** El mes más lluvioso en promedio es
+   `r v[["Mes más lluvioso (media)"]]` y el más seco
+   `r v[["Mes más seco (media)"]]` (@fig-mensual)`r if (hay.camels && invierno && cam$high_prec_timing_cr2met == "jja") ", la misma estación de lluvias intensas (junio-julio-agosto) que CAMELS-CL reporta para esta cuenca" else ""`.
+   En verano hay meses completos casi sin lluvia, y el mínimo mensual cae en
+   `r v[["Mes del mínimo mensual"]]`.
+4. **Nivel de la serie.** `r if (hay.camels) paste0("Entre abril de 1990 y marzo de 2010, el mismo período con que CAMELS-CL calcula sus índices [@alvarez2018], la serie promedia ", f(media.propia, 2), " mm/día. CAMELS-CL publica ", f(cam$p_mean_cr2met, 2), " mm/día para esta cuenca, una diferencia de ", f(abs(dif.camels)), " %. Es el mismo orden de magnitud; la diferencia puede venir de la versión de CR2MET con que se armó cada archivo, pero con la información del repositorio no se puede confirmar.") else "[FALTA DATO: valor de referencia de CAMELS-CL]"`
+   La precipitación anual media es de
+   `r f(v[["Precipitación anual media (mm)"]])` mm, con un coeficiente de
+   variación de `r f(v[["Coeficiente de variación anual (-)"]], 3)`.
 
-![Distribución de los totales mensuales por mes del año.](../results/`r codigo`_fig3_ciclo_mensual.png){#fig-mensual width=85%}
+## ¿Qué dicen las pruebas de homogeneidad y estacionariedad?
 
-## Homogeneidad
+### Homogeneidad
 
 ```{r}
 #| label: tbl-homog
@@ -267,9 +340,9 @@ txt.cortes <- if (length(unique(cortes)) == 1) {
 
 `r txt.quiebre`
 
-![Totales anuales con el corte más probable según Pettitt y la media de cada tramo.](../results/`r codigo`_fig4_quiebre_pettitt.png){#fig-quiebre width=100%}
+![Totales anuales con el corte más probable según Pettitt y la media de cada tramo.](../results/`r codigo`_fig7_quiebre_pettitt.png){#fig-quiebre width=100%}
 
-## Estacionariedad
+### Estacionariedad
 
 ```{r}
 #| label: tbl-estac
@@ -322,6 +395,30 @@ recorte <- if (any(e$p_recortado == "sí")) {
 
 `r txt.ea` `r txt.em``r recorte`
 
+## Gráficos del análisis exploratorio
+
+La serie diaria (@fig-diaria) muestra eventos aislados de gran magnitud sobre
+un fondo de muchos días secos. En los totales anuales (@fig-anual) y en la
+serie mensual (@fig-serie-mensual) se ve que, después de
+`r quiebre$ultimo_anio_antes`, los años y la media móvil de 12 meses quedan algo
+más bajos que antes. Es la misma baja que marca el corte de Pettitt
+(@fig-quiebre); a la vista existe, pero las pruebas no la dan por
+significativa frente a la variabilidad de la serie. El
+diagrama de caja por mes (@fig-mensual) muestra el ciclo estacional y la mayor
+dispersión de los meses lluviosos. Los histogramas (@fig-hist) muestran
+distribuciones asimétricas, con cola larga hacia los valores altos, tanto en
+los días con lluvia como en los totales mensuales.
+
+![Precipitación diaria de la serie completa.](../results/`r codigo`_fig1_serie_diaria.png){#fig-diaria width=100%}
+
+![Totales anuales de los años completos; la línea punteada es la media.](../results/`r codigo`_fig2_totales_anuales.png){#fig-anual width=100%}
+
+![Serie de totales mensuales con su media móvil de 12 meses.](../results/`r codigo`_fig5_serie_mensual.png){#fig-serie-mensual width=100%}
+
+![Diagrama de caja de los totales mensuales por mes del año.](../results/`r codigo`_fig3_ciclo_mensual.png){#fig-mensual width=85%}
+
+![Histogramas de la precipitación diaria (solo días con lluvia) y de los totales mensuales.](../results/`r codigo`_fig6_histogramas.png){#fig-hist width=100%}
+
 # Conclusión
 
 ```{r}
@@ -359,6 +456,9 @@ txt.concl.m <- if (length(rech.m) > 0 || km$p_valor < alfa) {
 }
 ```
 
+`r if (n.na == 0) "La serie está completa, sin datos faltantes, porque proviene de un producto grillado promediado sobre la cuenca." else paste0("La serie tiene ", n.na, " días sin dato.")`
+Sus valores tienen sentido físico: no hay negativos, la lluvia se concentra en
+invierno`r if (hay.camels) paste0(" y su media difiere en ", f(abs(dif.camels)), " % del valor que publica CAMELS-CL") else ""`.
 `r txt.concl` `r txt.concl.m`
 
 # Referencias {.unnumbered}
