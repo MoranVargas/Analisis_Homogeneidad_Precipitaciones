@@ -1,0 +1,15 @@
+---
+title: "HOLALALALA"
+author: JMV
+format: html
+---
+# Titulo 1
+
+texto normal 
+
+
+## Insertar foto
+
+![leyenda](C:/Ay-IIO422/Ay04/Git/ay/Analisis_Homogeneidad_Precipitaciones/results/Moran/wallpaper.jpg)
+
+### Titulo 3
