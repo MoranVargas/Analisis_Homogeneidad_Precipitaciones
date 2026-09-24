@@ -1,0 +1,6 @@
+# Contraste de data/precip_cr2met_day_<codigo>.csv con la serie CAMELS-CL publicada en 2018
+# Fuente: https://store.pangaea.de/Publications/Alvarez-Garreton-etal_2018/4_CAMELScl_precip_cr2met.zip (CR2MET v1.3, 1979-01-01 a 2016-12-31)
+# media_2018_1990_2010: media diaria de la serie 2018 entre 1990-04-01 y 2010-03-31 (mm/d)
+# corr_diaria: correlacion de Pearson dia a dia en el periodo comun (1979-01-01 a 2016-12-31)
+gauge_id,media_2018_1990_2010,dias_comunes,corr_diaria
+8317001,5.51786,13880,0.950

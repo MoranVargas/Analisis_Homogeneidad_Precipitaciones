@@ -23,13 +23,27 @@
 
 # 0) Directorio de trabajo [Ay04 lám. 7, paso 0] ------------------------------
 # En la Ay03a el ayudante fija main.drty con la ruta de su PC [Ay03a lám. 13].
-# +) Aquí se toma la carpeta desde donde se corre, para que el script funcione
-#    igual en cualquier computador que clone el repositorio.
-main.drty <- getwd()
-if (!dir.exists(file.path(main.drty, "data"))) {
-  stop("Corre el script desde la raíz del repositorio (donde están data/ y Rscript/).")
+# +) Aquí el script busca solo la raíz del repositorio (la carpeta que tiene
+#    data/), para que funcione en cualquier computador que lo clone y sin
+#    importar desde dónde se corra: Git Bash, R, RStudio o Positron.
+ubicar.raiz <- function() {
+  candidatos <- getwd()
+  # Rscript Rscript/Ravanal_Medina.R  -> la ruta viene en --file=
+  f <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+  # source("...Ravanal_Medina.R") o el botón Source -> la ruta queda en ofile
+  of <- unlist(lapply(sys.frames(), function(fr) fr$ofile))
+  for (x in c(f, of)) {
+    if (length(x) == 1 && nzchar(x) && file.exists(x)) {
+      candidatos <- c(candidatos, dirname(dirname(normalizePath(x))))
+    }
+  }
+  for (d in candidatos) if (dir.exists(file.path(d, "data"))) return(d)
+  stop("No encuentro la carpeta data/. Abre la carpeta del repositorio ",
+       "o usa setwd() con su ruta antes de correr el script.")
 }
+main.drty <- ubicar.raiz()
 setwd(main.drty)
+cat("Carpeta de trabajo:", main.drty, "\n")
 
 library(trend)      # Pettitt, Buishand, SNHT   [Ay03a lám. 11]
 library(DescTools)  # Von Neumann               [Ay03a lám. 11]
@@ -98,6 +112,8 @@ mensual$anom <- mensual$pp - clima.mes[as.character(mensual$month)]
 
 # Resumen exploratorio
 dia.max  <- data.pp[which.max(data.pp$pp), ]
+# +) Segundo mayor valor diario: muestra si el máximo se despega del resto.
+dia.max2 <- data.pp[order(-data.pp$pp)[2], ]
 anio.max <- anual[which.max(anual$pp), ]
 anio.min <- anual[which.min(anual$pp), ]
 mes.max  <- mensual[which.max(mensual$pp), ]
@@ -121,12 +137,13 @@ media.camels <- mean(data.pp$pp[periodo.camels], na.rm = TRUE)
 exploratorio <- data.frame(
   variable = c("Código BNA", "Fecha inicial", "Fecha final", "Días de registro",
                "Días sin dato", "Días con pp >= 1 mm (%)",
-               "Días con pp = 0 (%)", "Precipitación diaria media (mm)",
+               "Días con pp = 0 (%)", "Precipitación diaria media (mm/d)",
                "Mínimo diario (mm)",
                "Máximo diario (mm)", "Fecha del máximo diario",
+               "Segundo máximo diario (mm)", "Fecha del segundo máximo diario",
                "Mínimo mensual (mm)", "Mes del mínimo mensual",
                "Máximo mensual (mm)", "Mes del máximo mensual",
-               "Media diaria abr-1990 a mar-2010 (mm)",
+               "Media diaria abr-1990 a mar-2010 (mm/d)",
                "Años completos", "Precipitación anual media (mm)",
                "Desviación estándar anual (mm)", "Coeficiente de variación anual (-)",
                "Año más lluvioso", "Total del año más lluvioso (mm)",
@@ -140,7 +157,8 @@ exploratorio <- data.frame(
             round(mean(data.pp$pp, na.rm = TRUE), 2),
             round(min(data.pp$pp, na.rm = TRUE), 2),
             round(dia.max$pp, 1), format(dia.max$date),
-            round(mes.min$pp, 1), sprintf("%d-%02d", mes.min$year, mes.min$month),
+            round(dia.max2$pp, 1), format(dia.max2$date),
+            round(mes.min$pp, 3), sprintf("%d-%02d", mes.min$year, mes.min$month),
             round(mes.max$pp, 1), sprintf("%d-%02d", mes.max$year, mes.max$month),
             round(media.camels, 4),
             paste0(nrow(anual), " (", min(anual$year), "-", max(anual$year), ")"),
@@ -240,7 +258,8 @@ aplicar.tests <- function(x, etiquetas, nombre.serie) {
   adf <- capturar(adf.test(x))
   kp  <- capturar(kpss.test(x, null = "Level"))
 
-  cambio <- function(K) etiquetas[as.integer(K)]
+  # [1]: si hubiera empate en el máximo, se toma el primer corte.
+  cambio <- function(K) etiquetas[as.integer(K)[1]]
   decide.homog <- function(p) ifelse(p < alfa, "Rechaza H0: no homogénea",
                                      "No rechaza H0: homogénea")
   data.frame(
@@ -278,7 +297,7 @@ write.csv(tests, salida("tests.csv"), row.names = FALSE)
 
 # +) Figura del quiebre de Pettitt en los totales anuales, con la media de cada
 #    tramo. La prueba dice si hay quiebre; esta figura muestra de cuánto es.
-K <- as.integer(pettitt.test(anual$pp)$estimate)
+K <- as.integer(pettitt.test(anual$pp)$estimate)[1]
 antes   <- anual$pp[seq_len(K)]
 despues <- anual$pp[(K + 1):nrow(anual)]
 png(salida("fig7_quiebre_pettitt.png"), width = 1800, height = 800, res = 200)
