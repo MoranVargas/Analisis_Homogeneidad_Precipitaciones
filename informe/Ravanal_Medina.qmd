@@ -1,0 +1,367 @@
+---
+title: "Homogeneidad y estacionariedad de una serie de precipitación CR2MET"
+subtitle: "IIO422 Hidrología · Ayudantía 04"
+author: "Fernanda Ravanal Medina"
+date: 2026-09-24
+lang: es
+crossref:
+  tbl-title: "Tabla"
+bibliography: referencias.bib
+params:
+  codigo: ""
+format:
+  pdf:
+    documentclass: article
+    papersize: letter
+    geometry: margin=2.5cm
+    number-sections: true
+    fig-pos: "H"
+    pdf-engine: xelatex
+    include-in-header:
+      text: |
+        \usepackage{float}
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+# El informe solo lee lo que dejó Rscript/Ravanal_Medina.R en results/.
+# Ningún número del texto está escrito a mano.
+codigo <- params$codigo
+if (!nzchar(codigo)) stop("Falta el parámetro codigo: quarto render ... -P codigo:XXXXXXX")
+res <- function(nombre) file.path("..", "results", paste0(codigo, "_", nombre))
+if (!file.exists(res("tests.csv"))) {
+  stop("No hay resultados para ", codigo,
+       ". Corre antes: Rscript Rscript/Ravanal_Medina.R ", codigo)
+}
+
+expl    <- read.csv(res("exploratorio.csv"), stringsAsFactors = FALSE)
+anual   <- read.csv(res("anual.csv"))
+tests   <- read.csv(res("tests.csv"), stringsAsFactors = FALSE)
+quiebre <- read.csv(res("quiebre_pettitt.csv"))
+v <- setNames(expl$valor, expl$variable)
+
+f  <- function(x, d = 1) formatC(as.numeric(x), format = "f", digits = d, big.mark = "")
+fp <- function(p, recortado = "no") {
+  if (recortado == "sí" && p <= 0.01) return("$\\leq$ 0.01")
+  if (recortado == "sí" && p >= 0.10) return("$\\geq$ 0.10")
+  if (p < 0.001) return("< 0.001")
+  f(p, 3)
+}
+alfa <- 0.05
+tabla <- function(df, align) {
+  knitr::kable(df, format = "latex", booktabs = FALSE, escape = FALSE,
+               align = align, linesep = "\\hline")
+}
+fila <- function(serie, prueba) tests[tests$serie == serie & tests$prueba == prueba, ]
+```
+
+# Introducción
+
+Antes de usar una serie de precipitación en un análisis de frecuencia hay que
+revisar dos supuestos: que todos los datos vengan de la misma fuente y que su
+comportamiento estadístico no cambie en el tiempo. Este informe revisa ambos
+para la serie diaria CR2MET asociada al código BNA **`r codigo`**, entregada en
+el repositorio de la ayudantía, siguiendo las pruebas vistas en la Ayudantía 03a
+[@moran2026].
+
+## Marco teórico
+
+Una serie es **homogénea** cuando sus variaciones se deben solo a la
+variabilidad natural y no a factores externos, como un cambio de instrumento,
+un traslado de la estación o un cambio de metodología. Es **estacionaria**
+cuando su media, varianza y autocorrelación se mantienen en el tiempo
+[@moran2026]. La primera propiedad mira la consistencia de la medición; la
+segunda, la estabilidad de la distribución.
+
+En todas las pruebas se trabaja con un nivel de significancia
+$\alpha = `r alfa`$: si $p < \alpha$ se rechaza $H_0$.
+
+**Pettitt** [@pettitt1979] busca un cambio en la mediana sin suponer una
+distribución. Para cada posible punto de corte $t$ compara todos los pares de
+datos que quedan a uno y otro lado:
+
+$$
+U_t = \sum_{i=1}^{t} \sum_{j=t+1}^{n} \operatorname{sgn}(x_i - x_j), \qquad
+K = \max_{1 \le t < n} |U_t|, \qquad
+p \approx 2 \exp\!\left(\frac{-6K^2}{n^3 + n^2}\right)
+$$ {#eq-pettitt}
+
+**Rango de Buishand** [@buishand1982] busca un cambio en la media a partir de
+las sumas acumuladas de las desviaciones, donde $s$ es la desviación estándar
+de la muestra. Se reporta $R/\sqrt{n}$:
+
+$$
+S_k = \sum_{i=1}^{k} (x_i - \bar{x}), \qquad
+R = \frac{\max_k S_k - \min_k S_k}{s}
+$$ {#eq-buishand}
+
+**SNHT** [@alexandersson1986] compara la media estandarizada antes y después de
+cada corte $k$:
+
+$$
+\bar{z}_1 = \frac{1}{k}\sum_{i=1}^{k}\frac{x_i - \bar{x}}{s}, \qquad
+\bar{z}_2 = \frac{1}{n-k}\sum_{i=k+1}^{n}\frac{x_i - \bar{x}}{s}, \qquad
+T_0 = \max_{1 \le k < n}\left[\,k\,\bar{z}_1^{\,2} + (n-k)\,\bar{z}_2^{\,2}\,\right]
+$$ {#eq-snht}
+
+En Buishand y SNHT el valor $p$ se estima por simulación de Monte Carlo.
+
+**Von Neumann** [@vonneumann1941] no ubica un punto de quiebre. Mide si los
+datos consecutivos se parecen más de lo que se esperaría en una serie
+aleatoria; bajo $H_0$ el cociente queda cerca de 2:
+
+$$
+VN = \frac{\sum_{i=1}^{n-1} (x_i - x_{i+1})^2}{\sum_{i=1}^{n} (x_i - \bar{x})^2}\cdot\frac{n}{n-1}
+$$ {#eq-vn}
+
+**Dickey-Fuller aumentada (ADF)** [@said1984] ajusta la regresión de
+@eq-adf, con constante, tendencia lineal y $k = \lfloor (n-1)^{1/3} \rfloor$
+rezagos, y prueba $H_0\!: \gamma = 0$ (raíz unitaria, serie no estacionaria):
+
+$$
+\Delta x_t = \alpha + \beta t + \gamma\, x_{t-1} + \sum_{j=1}^{k} \delta_j\, \Delta x_{t-j} + \varepsilon_t
+$$ {#eq-adf}
+
+**KPSS** [@kwiatkowski1992] invierte la pregunta: su $H_0$ es que la serie es
+estacionaria en torno a un nivel. Con $e_i = x_i - \bar{x}$ y $\hat{\sigma}^2$
+estimada por Newey-West:
+
+$$
+S_t = \sum_{i=1}^{t} e_i, \qquad
+\eta = \frac{1}{n^2\,\hat{\sigma}^2} \sum_{t=1}^{n} S_t^2
+$$ {#eq-kpss}
+
+Como las hipótesis nulas de ADF y KPSS son opuestas, se usan juntas para
+contrastar la conclusión [@moran2026].
+
+# Datos y método
+
+El archivo `r paste0("data/precip_cr2met_day_", codigo, ".csv")` trae la precipitación
+diaria desde el `r v[["Fecha inicial"]]` hasta el `r v[["Fecha final"]]`
+(`r v[["Días de registro"]]` días, `r v[["Días sin dato"]]` sin dato).
+
+Las pruebas no se aplican a los datos diarios, porque la mayoría de los días
+son cero y la serie diaria está muy autocorrelacionada. Se aplican a dos series
+derivadas:
+
+- **Totales anuales**, solo de años calendario completos: `r nrow(anual)`
+  años, de `r min(anual$year)` a `r max(anual$year)`. El año 2020 queda
+  fuera porque la serie termina en abril.
+- **Anomalías mensuales**, como complemento. Al total de cada mes se le resta
+  el promedio de ese mes en toda la serie, para quitar el ciclo estacional:
+
+$$
+a_{y,m} = P_{y,m} - \bar{P}_m
+$$ {#eq-anom}
+
+El análisis está en `Rscript/Ravanal_Medina.R` y se corrió en
+R `r getRversion()`, con los paquetes `trend` `r packageVersion("trend")`,
+`DescTools` `r packageVersion("DescTools")` y `tseries`
+`r packageVersion("tseries")`. La semilla de las simulaciones es fija, así que
+cualquiera que clone el repositorio obtiene los mismos valores.
+
+# Resultados
+
+## Análisis exploratorio
+
+```{r}
+#| label: tbl-expl
+#| tbl-cap: "Resumen exploratorio de la serie."
+etiq <- c("Días con pp >= 1 mm (%)" = "Días con al menos 1 mm (\\%)")
+expl.tab <- expl
+expl.tab$variable <- ifelse(expl.tab$variable %in% names(etiq),
+                            etiq[expl.tab$variable], expl.tab$variable)
+names(expl.tab) <- c("Variable", "Valor")
+tabla(expl.tab, c("l", "r"))
+```
+
+La precipitación anual media es de `r f(v[["Precipitación anual media (mm)"]])` mm,
+con un coeficiente de variación de `r f(v[["Coeficiente de variación anual (-)"]], 3)`
+(@tbl-expl). El año más lluvioso fue `r v[["Año más lluvioso"]]`
+(`r f(v[["Total del año más lluvioso (mm)"]])` mm) y el más seco
+`r v[["Año más seco"]]` (`r f(v[["Total del año más seco (mm)"]])` mm). El
+mes con más lluvia en promedio es `r v[["Mes más lluvioso (media)"]]` y el más
+seco `r v[["Mes más seco (media)"]]` (@fig-mensual).
+
+![Precipitación diaria de la serie completa.](../results/`r codigo`_fig1_serie_diaria.png){#fig-diaria width=100%}
+
+![Totales anuales de los años completos; la línea punteada es la media.](../results/`r codigo`_fig2_totales_anuales.png){#fig-anual width=100%}
+
+![Distribución de los totales mensuales por mes del año.](../results/`r codigo`_fig3_ciclo_mensual.png){#fig-mensual width=85%}
+
+## Homogeneidad
+
+```{r}
+#| label: tbl-homog
+#| tbl-cap: "Pruebas de homogeneidad, con $\\alpha = 0.05$."
+h <- tests[tests$prueba %in% c("Pettitt", "Buishand", "SNHT", "Von Neumann"), ]
+h.tab <- data.frame(
+  Serie = h$serie, Prueba = h$prueba,
+  Estadístico = f(h$estadistico, 3),
+  `$p$` = mapply(fp, h$p_valor, h$p_recortado),
+  `Corte después de` = ifelse(is.na(h$ultimo_antes_del_cambio), "-",
+                              h$ultimo_antes_del_cambio),
+  Decisión = ifelse(h$p_valor < alfa, "Rechaza $H_0$", "No rechaza $H_0$"),
+  Lectura = ifelse(h$p_valor < alfa, "No homogénea", "Homogénea"),
+  check.names = FALSE)
+tabla(h.tab, c("l", "l", "r", "r", "c", "l", "l"))
+```
+
+```{r}
+#| label: texto-homog
+ha <- h[h$serie == "Total anual", ]
+hm <- h[h$serie == "Anomalía mensual", ]
+rech.a <- ha$prueba[ha$p_valor < alfa]
+rech.m <- hm$prueba[hm$p_valor < alfa]
+lista <- function(x) if (length(x) == 1) x else
+  paste(paste(x[-length(x)], collapse = ", "), "y", x[length(x)])
+
+txt.anual <- if (length(rech.a) == 0) {
+  "En los totales anuales ninguna de las cuatro pruebas rechaza la homogeneidad."
+} else {
+  paste0("En los totales anuales rechaza la homogeneidad ",
+         if (length(rech.a) == 1) "la prueba de " else "las pruebas de ",
+         lista(rech.a), ".")
+}
+txt.mens <- if (length(rech.m) == 0) {
+  "En las anomalías mensuales tampoco hay rechazos."
+} else {
+  paste0("En las anomalías mensuales rechaza ",
+         if (length(rech.m) == 1) "la prueba de " else "las pruebas de ",
+         lista(rech.m), ".")
+}
+if (length(rech.a) == 0 && length(rech.m) > 0) txt.mens <- sub("tampoco ", "", txt.mens)
+
+pt.a <- fila("Total anual", "Pettitt")
+txt.quiebre <- paste0(
+  "El corte más probable según Pettitt queda después de ", quiebre$ultimo_anio_antes,
+  ": la media anual pasa de ", f(quiebre$media_antes), " mm a ",
+  f(quiebre$media_despues), " mm, ",
+  if (quiebre$diferencia < 0) "una baja de " else "un alza de ",
+  f(abs(quiebre$diferencia_pct)), " % (@fig-quiebre). ",
+  if (pt.a$p_valor < alfa) {
+    paste0("Con $p$ = ", fp(pt.a$p_valor), " el cambio es significativo, y habría ",
+           "que revisar si coincide con algún cambio en la estación o en el producto.")
+  } else {
+    paste0("Con $p$ = ", fp(pt.a$p_valor), " esa diferencia es compatible con la ",
+           "variabilidad natural de la serie y no alcanza a ser un quiebre.")
+  })
+
+cortes <- ha$ultimo_antes_del_cambio[ha$prueba %in% c("Pettitt", "Buishand", "SNHT")]
+txt.cortes <- if (length(unique(cortes)) == 1) {
+  paste0("Pettitt, Buishand y SNHT coinciden en ubicar el corte más probable después de ",
+         cortes[1], ".")
+} else {
+  paste0("Las tres pruebas con punto de cambio no coinciden en dónde lo ubican (",
+         paste(paste0(c("Pettitt", "Buishand", "SNHT"), ": ", cortes), collapse = "; "),
+         "). Un punto de corte solo tiene lectura física cuando la prueba que lo ",
+         "entrega es significativa.")
+}
+```
+
+`r txt.anual` `r txt.mens` `r txt.cortes`
+
+`r txt.quiebre`
+
+![Totales anuales con el corte más probable según Pettitt y la media de cada tramo.](../results/`r codigo`_fig4_quiebre_pettitt.png){#fig-quiebre width=100%}
+
+## Estacionariedad
+
+```{r}
+#| label: tbl-estac
+#| tbl-cap: "Pruebas de estacionariedad, con $\\alpha = 0.05$."
+e <- tests[tests$prueba %in% c("ADF", "KPSS"), ]
+e.tab <- data.frame(
+  Serie = e$serie, Prueba = e$prueba,
+  `$H_0$` = ifelse(e$prueba == "ADF", "Raíz unitaria", "Estacionaria"),
+  Estadístico = f(e$estadistico, 3),
+  `$p$` = mapply(fp, e$p_valor, e$p_recortado),
+  Decisión = ifelse(e$p_valor < alfa, "Rechaza $H_0$", "No rechaza $H_0$"),
+  check.names = FALSE)
+tabla(e.tab, c("l", "l", "l", "r", "r", "l"))
+```
+
+```{r}
+#| label: texto-estac
+lectura <- function(serie, n) {
+  adf <- fila(serie, "ADF"); kp <- fila(serie, "KPSS")
+  a.rech <- adf$p_valor < alfa; k.rech <- kp$p_valor < alfa
+  nombre <- if (serie == "Total anual") "los totales anuales" else "las anomalías mensuales"
+  if (a.rech && !k.rech) {
+    paste0("En ", nombre, " las dos pruebas coinciden: ADF rechaza la raíz unitaria ",
+           "y KPSS no rechaza la estacionariedad, así que la serie se considera estacionaria.")
+  } else if (!a.rech && k.rech) {
+    paste0("En ", nombre, " las dos pruebas coinciden en que la serie no es estacionaria: ",
+           "ADF no rechaza la raíz unitaria y KPSS rechaza la estacionariedad.")
+  } else if (!a.rech && !k.rech) {
+    paste0("En ", nombre, " el resultado no es concluyente: ninguna de las dos pruebas ",
+           "rechaza su hipótesis nula. Con solo ", n, " datos la ADF tiene poca potencia, ",
+           "por lo que no rechazar la raíz unitaria no alcanza para decir que la serie ",
+           "no es estacionaria; KPSS no encuentra evidencia en contra de la estacionariedad.")
+  } else {
+    paste0("En ", nombre, " las dos pruebas rechazan. ADF incluye una tendencia lineal ",
+           "en su regresión (@eq-adf) y KPSS prueba estacionariedad en torno a un nivel ",
+           "fijo, así que el resultado apunta a una serie estacionaria alrededor de una ",
+           "tendencia o con un cambio de nivel, más que a una raíz unitaria.")
+  }
+}
+txt.ea <- lectura("Total anual", nrow(anual))
+txt.em <- lectura("Anomalía mensual", nrow(read.csv(res("mensual.csv"))))
+# Con cientos de datos mensuales la frase de "poca potencia" no aplica.
+txt.em <- sub("Con solo [0-9]+ datos la ADF tiene poca potencia, por lo que no rechazar la raíz unitaria no alcanza para decir que la serie no es estacionaria; ",
+              "", txt.em)
+recorte <- if (any(e$p_recortado == "sí")) {
+  paste0(" `tseries` interpola el valor $p$ en tablas y lo recorta en sus bordes; ",
+         "por eso algunos aparecen como $\\leq$ 0.01 o $\\geq$ 0.10.")
+} else ""
+```
+
+`r txt.ea` `r txt.em``r recorte`
+
+# Conclusión
+
+```{r}
+#| label: conclusion
+homog.a <- length(rech.a) == 0
+ea <- fila("Total anual", "ADF"); ka <- fila("Total anual", "KPSS")
+estac.a <- ka$p_valor >= alfa
+txt.concl <- paste0(
+  "La serie anual de la estación ", codigo, " ",
+  if (homog.a) "no muestra rupturas significativas en ninguna de las cuatro pruebas de homogeneidad"
+  else paste0("presenta indicios de ruptura según ", lista(rech.a)),
+  ", y ",
+  if (estac.a && ea$p_valor < alfa) "ambas pruebas de estacionariedad la dan por estacionaria"
+  else if (estac.a) "KPSS no rechaza su estacionariedad, aunque ADF no alcanza a confirmarla"
+  else "KPSS rechaza su estacionariedad en nivel",
+  ". ",
+  if (homog.a && estac.a) {
+    "Con esto, la serie anual puede usarse en un análisis de frecuencia sin corregirla ni dividirla."
+  } else {
+    "Antes de usarla en un análisis de frecuencia conviene revisar el origen del cambio y evaluar si se trabaja con el tramo más reciente o se corrige la serie."
+  })
+
+km <- fila("Anomalía mensual", "KPSS")
+txt.concl.m <- if (length(rech.m) > 0 || km$p_valor < alfa) {
+  paste0("Las anomalías mensuales no dan el mismo resultado",
+         if (length(rech.m) > 0) paste0(" (", lista(rech.m), " rechaza", if (length(rech.m) > 1) "n", " la homogeneidad)") else "",
+         if (km$p_valor < alfa) paste0(if (length(rech.m) > 0) " y" else ":",
+                                       " KPSS rechaza la estacionariedad en nivel ($p$ = ",
+                                       fp(km$p_valor, km$p_recortado), ")") else "",
+         ". Con ", nrow(read.csv(res("mensual.csv"))), " datos mensuales las pruebas ",
+         "detectan cambios más pequeños que con ", nrow(anual), " totales anuales, así ",
+         "que la conclusión anual se toma con esa reserva.")
+} else {
+  "Las anomalías mensuales llevan a la misma conclusión."
+}
+```
+
+`r txt.concl` `r txt.concl.m`
+
+# Referencias {.unnumbered}
+
+::: {#refs}
+:::
